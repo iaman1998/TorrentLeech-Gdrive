@@ -16,6 +16,7 @@ LOGGER = logging.getLogger(__name__)
 import aria2p
 import asyncio
 import os
+import time
 from tobrot.helper_funcs.upload_to_tg import upload_to_tg, upload_to_gdrive
 from tobrot.helper_funcs.create_compressed_archive import create_archive, unzip_me, unrar_me, untar_me
 from tobrot.helper_funcs.extract_link_from_message import extract_link
@@ -28,11 +29,11 @@ from tobrot import (
     EDIT_SLEEP_TIME_OUT,
     CUSTOM_FILE_NAME
 )
-from pyrogram.errors import MessageNotModified
+from pyrogram.errors import MessageNotModified, FloodWait
 from pyrogram.types import (
-	InlineKeyboardButton,
-	InlineKeyboardMarkup,
-	Message
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message
 )
 
 async def aria_start():
@@ -41,7 +42,7 @@ async def aria_start():
     aria2_daemon_start_cmd.append("aria2c")
     aria2_daemon_start_cmd.append("--allow-overwrite=true")
     aria2_daemon_start_cmd.append("--daemon=true")
-    # aria2_daemon_start_cmd.append(f"--dir={DOWNLOAD_LOCATION}")
+    #aria2_daemon_start_cmd.append(f"--dir={DOWNLOAD_LOCATION}")
     # TODO: this does not work, need to investigate this.
     # but for now, https://t.me/TrollVoiceBot?start=858
     aria2_daemon_start_cmd.append("--enable-rpc")
@@ -414,7 +415,7 @@ async def check_progress_for_dl(aria2, gid, event, previous_message):
                 inline_keyboard.append(ikeyboard)
                 reply_markup = InlineKeyboardMarkup(inline_keyboard)
                 #msg += reply_markup
-                LOGGER.info(msg)
+                #LOGGER.info(msg)
                 if msg != previous_message:
                     await event.edit(msg, reply_markup=reply_markup)
                     previous_message = msg
@@ -426,13 +427,17 @@ async def check_progress_for_dl(aria2, gid, event, previous_message):
             await asyncio.sleep(EDIT_SLEEP_TIME_OUT)
             await check_progress_for_dl(aria2, gid, event, previous_message)
         else:
+            LOGGER.info(f"Downloaded Successfully: `{file.name} ({file.total_length_string()})` 🤒")
             await asyncio.sleep(EDIT_SLEEP_TIME_OUT)
-            await event.edit(f"Downloaded Successfully: `{file.name}` 🤒")
+            await event.edit(f"Downloaded Successfully: `{file.name} ({file.total_length_string()})` 🤒")
             return True
     except aria2p.client.ClientException:
-        pass
-    except MessageNotModified:
-        pass
+        await event.edit(f"Download Canceled :\n<code>{file.name} ({file.total_length_string()})</code>")
+    except MessageNotModified as ep:
+        LOGGER.info(ep)
+    except FloodWait as e:
+        LOGGER.info(e)
+        time.sleep(e.x)
     except RecursionError:
         file.remove(force=True)
         await event.edit(
@@ -444,8 +449,9 @@ async def check_progress_for_dl(aria2, gid, event, previous_message):
         return False
     except Exception as e:
         LOGGER.info(str(e))
-        if " not found" in str(e) or "'file'" in str(e):
-            await event.edit("Download Canceled :\n<code>{}</code>".format(file.name))
+        #await event.edit(f'Download cancelled due to {e}')
+        if "not found" in str(e) or "'file'" in str(e):
+            await event.edit(f"Download Canceled :\n<code>{file.name} ({file.total_length_string()})</code>")
             return False
         else:
             LOGGER.info(str(e))
